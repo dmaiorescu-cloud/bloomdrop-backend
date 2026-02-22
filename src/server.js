@@ -24,11 +24,39 @@ app.use(cors({
 app.use(express.json());
 
 // ---------------------------
-// MongoDB connection
+// MongoDB connection with troubleshooting
 // ---------------------------
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("DB connected"))
-  .catch(err => console.error("DB connection error:", err));
+const MONGO_URI = process.env.MONGO_URI;
+
+if (!MONGO_URI) {
+  console.error("❌ MONGO_URI is not set in environment variables!");
+  process.exit(1);
+}
+
+mongoose.connect(MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+  serverSelectionTimeoutMS: 5000,
+  connectTimeoutMS: 10000
+});
+
+// Connection event listeners
+mongoose.connection.on('connected', () => {
+  console.log(`✅ MongoDB connected to ${MONGO_URI}`);
+});
+
+mongoose.connection.on('error', (err) => {
+  console.error('❌ MongoDB connection error:', err);
+});
+
+mongoose.connection.on('disconnected', () => {
+  console.warn('⚠️ MongoDB disconnected');
+});
+
+// Optional: log every query for debugging
+mongoose.set('debug', function (collectionName, method, query, doc) {
+  console.log(`MongoDB: ${collectionName}.${method}`, JSON.stringify(query), doc || '');
+});
 
 // ---------------------------
 // Admin credentials
@@ -68,7 +96,6 @@ app.post("/checkout", async (req, res) => {
   try {
     const { email, city, items, total } = req.body;
 
-    // Simple delivery fee example
     const deliveryZones = [
       { zone: "New York", fee: 5 },
       { zone: "Los Angeles", fee: 7 },
@@ -86,6 +113,8 @@ app.post("/checkout", async (req, res) => {
       finalTotal: total + deliveryFee
     });
 
+    console.log(`✅ Order created for ${email}, final total: $${order.finalTotal}`);
+
     // Send confirmation email
     const mailOptions = {
       from: process.env.EMAIL_USER,
@@ -93,11 +122,14 @@ app.post("/checkout", async (req, res) => {
       subject: 'BloomDrop Order Confirmation',
       text: `Thank you for your order! Total: $${order.finalTotal}`
     };
-    transporter.sendMail(mailOptions);
+    transporter.sendMail(mailOptions, (err, info) => {
+      if (err) console.error("❌ Error sending email:", err);
+      else console.log(`✅ Confirmation email sent to ${email}`);
+    });
 
     res.json(order);
   } catch (err) {
-    console.error("Checkout error:", err);
+    console.error("❌ Checkout error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -106,9 +138,10 @@ app.post("/checkout", async (req, res) => {
 app.get("/orders", auth, async (req, res) => {
   try {
     const orders = await Order.find().sort({ createdAt: -1 });
+    console.log(`✅ Fetched ${orders.length} orders`);
     res.json(orders);
   } catch (err) {
-    console.error("Get orders error:", err);
+    console.error("❌ Get orders error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -117,10 +150,16 @@ app.get("/orders", auth, async (req, res) => {
 app.put("/orders/:id/status", auth, async (req, res) => {
   try {
     const { status } = req.body;
-    await Order.findByIdAndUpdate(req.params.id, { status });
-    res.json({ success: true });
+    const updated = await Order.findByIdAndUpdate(req.params.id, { status }, { new: true });
+    if (updated) {
+      console.log(`✅ Updated order ${updated._id} status to ${status}`);
+      res.json({ success: true });
+    } else {
+      console.warn(`⚠️ Order ${req.params.id} not found`);
+      res.status(404).json({ error: "Order not found" });
+    }
   } catch (err) {
-    console.error("Update order status error:", err);
+    console.error("❌ Update order status error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
