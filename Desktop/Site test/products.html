@@ -1,0 +1,88 @@
+<!-- products.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Shop – BloomDrop</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header class="topbar">
+  <h1>BloomDrop</h1>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="products.html">Shop</a>
+    <a href="delivery.html">Delivery</a>
+    <a href="contact.html">Contact</a>
+    <a href="cart.html" class="cart-link">Cart (<span id="cart-count">0</span>)</a>
+  </nav>
+</header>
+
+<section class="grid">
+  <div class="product">
+    <h3>Rose Elegance</h3>
+    <p>$35</p>
+    <button onclick="addToCart('Rose Elegance',35)">Add to Cart</button>
+  </div>
+  <div class="product">
+    <h3>Spring Mix</h3>
+    <p>$29</p>
+    <button onclick="addToCart('Spring Mix',29)">Add to Cart</button>
+  </div>
+  <div class="product">
+    <h3>White Serenity</h3>
+    <p>$32</p>
+    <button onclick="addToCart('White Serenity',32)">Add to Cart</button>
+  </div>
+</section>
+
+<script src="cart.js"></script>
+</body>
+</html>
+
+<!-- cart.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Your Cart – BloomDrop</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header class="topbar">
+  <h1>BloomDrop</h1>
+  <nav>
+    <a href="products.html">Continue Shopping</a>
+  </nav>
+</header>
+
+<section class="content">
+  <h2>Your Cart</h2>
+  <ul id="cart-items"></ul>
+  <h3>Total: $<span id="cart-total">0</span></h3>
+  <button onclick="checkout()">Place Order</button>
+</section>
+
+<script src="cart.js"></script>
+</body>
+</html>
+
+<!-- delivery.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Delivery – BloomDrop</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header class="topbar">
+  <h1>Delivery</h1>
+</header>
+<section class="content">
+  <p>Same-day delivery for orders placed before 2 PM.</p>
+  <p>Next-day delivery available nationwide.</p>
+</section>
+</body>
+</html>
+

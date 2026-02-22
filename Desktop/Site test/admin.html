@@ -1,0 +1,41 @@
+<!-- admin.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>BloomDrop Admin</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header class="topbar">
+  <h1>BloomDrop Admin</h1>
+</header>
+
+<section class="content">
+  <h2>Orders</h2>
+  <ul id="orders"></ul>
+
+  <h2>Delivery Zones</h2>
+  <ul id="zones"></ul>
+</section>
+
+<script>
+async function loadAdmin() {
+  const ordersRes = await fetch('http://localhost:4000/orders');
+  const orders = await ordersRes.json();
+  const ordersList = document.getElementById('orders');
+  ordersList.innerHTML = orders.map(o => `
+    <li>${o.email} – $${o.finalTotal}</li>
+  `).join('');
+
+  const zonesRes = await fetch('http://localhost:4000/zones');
+  const zones = await zonesRes.json();
+  const zonesList = document.getElementById('zones');
+  zonesList.innerHTML = zones.map(z => `
+    <li>${z.zone}: $${z.fee}</li>
+  `).join('');
+}
+loadAdmin();
+</script>
+</body>
+</html>

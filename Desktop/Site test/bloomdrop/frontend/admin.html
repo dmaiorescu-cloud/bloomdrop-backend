@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Admin | BloomDrop</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<section class="admin">
+  <h2>Admin Login</h2>
+  <input type="email" id="admin-email" placeholder="Admin email">
+  <input type="password" id="admin-password" placeholder="Password">
+  <button onclick="login()">Login</button>
+
+  <h2>Orders</h2>
+  <ul id="orders"></ul>
+</section>
+
+<script>
+let token = "";
+const API = "http://localhost:4000"; // change after deployment
+
+async function login() {
+  const email = document.getElementById("admin-email").value;
+  const password = document.getElementById("admin-password").value;
+
+  const res = await fetch(`${API}/admin/login`, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ email, password })
+  });
+
+  const data = await res.json();
+  token = data.token;
+  loadOrders();
+}
+
+async function loadOrders() {
+  const res = await fetch(`${API}/admin/orders`, {
+    headers: { Authorization: token }
+  });
+
+  const orders = await res.json();
+  document.getElementById("orders").innerHTML =
+    orders.map(o => `
+      <li>${o.email} - $${o.finalTotal} - ${o.status}</li>
+    `).join("");
+}
+</script>
+
+</body>
+</html>

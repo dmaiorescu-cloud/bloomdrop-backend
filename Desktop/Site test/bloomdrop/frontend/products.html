@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Shop | BloomDrop</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="navbar">
+  <h1 class="logo">BloomDrop</h1>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="products.html">Shop</a>
+    <a href="cart.html">Cart</a>
+  </nav>
+</header>
+
+<section class="products">
+  <div class="card">
+    <h3>Rose Elegance</h3>
+    <p>$40</p>
+    <button onclick="addToCart('Rose Elegance', 40)">Add to Cart</button>
+  </div>
+
+  <div class="card">
+    <h3>White Serenity</h3>
+    <p>$55</p>
+    <button onclick="addToCart('White Serenity', 55)">Add to Cart</button>
+  </div>
+
+  <div class="card">
+    <h3>Spring Bloom</h3>
+    <p>$35</p>
+    <button onclick="addToCart('Spring Bloom', 35)">Add to Cart</button>
+  </div>
+</section>
+
+<script src="cart.js"></script>
+</body>
+</html>

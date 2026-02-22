@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Cart | BloomDrop</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="navbar">
+  <h1 class="logo">BloomDrop</h1>
+</header>
+
+<section class="cart">
+  <h2>Your Cart</h2>
+  <ul id="cart-items"></ul>
+  <h3 id="cart-total"></h3>
+
+  <h3>Checkout</h3>
+  <input type="email" id="email" placeholder="Your email" required>
+  <input type="text" id="city" placeholder="Your city" required>
+  <button onclick="checkout()">Place Order</button>
+</section>
+
+<script src="cart.js"></script>
+</body>
+</html>

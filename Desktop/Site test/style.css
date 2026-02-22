@@ -1,0 +1,47 @@
+<!-- style.css -->
+body {
+  margin: 0;
+  font-family: 'Inter', sans-serif;
+  background: #fafafa;
+  color: #111;
+}
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 40px;
+  border-bottom: 1px solid #eee;
+}
+nav a {
+  margin-left: 20px;
+  text-decoration: none;
+  color: #111;
+}
+.hero {
+  padding: 120px 20px;
+  text-align: center;
+}
+.btn, button {
+  background: black;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  cursor: pointer;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 30px;
+  padding: 40px;
+}
+.product {
+  background: white;
+  padding: 30px;
+  border: 1px solid #eee;
+}
+.content {
+  max-width: 600px;
+  margin: auto;
+  padding: 40px;
+}
+
