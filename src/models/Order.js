@@ -11,7 +11,11 @@ const OrderSchema = new mongoose.Schema({
     }
   ],
   finalTotal: { type: Number, required: true },
-  status: { type: String, enum: ["pending","confirmed","delivered"], default: "pending" }
+  status: {
+    type: String,
+    enum: ["pending", "confirmed", "delivered"],
+    default: "pending"
+  }
 }, { timestamps: true });
 
 module.exports = mongoose.model("Order", OrderSchema);
