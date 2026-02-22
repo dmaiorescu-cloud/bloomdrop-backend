@@ -1,3 +1,4 @@
+// src/server.js
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
@@ -12,24 +13,34 @@ const Order = require('./models/Order');
 const app = express();
 
 // ---------------------------
-// CORS middleware (must be first)
+// CORS middleware (prevents browser blocking)
 // ---------------------------
+const allowedOrigins = ["https://bloomdropgpt.netlify.app"];
 app.use(cors({
-  origin: "https://bloomdropgpt.netlify.app", // your frontend URL
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true); // allow Postman, curl, server-to-server
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = `❌ CORS: Origin not allowed: ${origin}`;
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"]
 }));
+
+// Preflight requests
+app.options("*", cors());
 
 // Body parser
 app.use(express.json());
 
 // ---------------------------
-// MongoDB connection with troubleshooting
+// MongoDB connection with logging
 // ---------------------------
 const MONGO_URI = process.env.MONGO_URI;
-
 if (!MONGO_URI) {
-  console.error("❌ MONGO_URI is not set in environment variables!");
+  console.error("❌ MONGO_URI not set in environment variables!");
   process.exit(1);
 }
 
@@ -40,7 +51,6 @@ mongoose.connect(MONGO_URI, {
   connectTimeoutMS: 10000
 });
 
-// Connection event listeners
 mongoose.connection.on('connected', () => {
   console.log(`✅ MongoDB connected to ${MONGO_URI}`);
 });
@@ -53,9 +63,9 @@ mongoose.connection.on('disconnected', () => {
   console.warn('⚠️ MongoDB disconnected');
 });
 
-// Optional: log every query for debugging
-mongoose.set('debug', function (collectionName, method, query, doc) {
-  console.log(`MongoDB: ${collectionName}.${method}`, JSON.stringify(query), doc || '');
+// Optional: log all queries for debugging
+mongoose.set('debug', (collection, method, query, doc) => {
+  console.log(`MongoDB: ${collection}.${method}`, JSON.stringify(query), doc || '');
 });
 
 // ---------------------------
@@ -82,11 +92,9 @@ const transporter = nodemailer.createTransport({
 // Admin login
 app.post("/admin/login", (req, res) => {
   const { email, password } = req.body;
-
   if (email !== ADMIN_EMAIL || !bcrypt.compareSync(password, ADMIN_PASSWORD_HASH)) {
     return res.status(401).json({ error: "Invalid credentials" });
   }
-
   const token = jwt.sign({ admin: true }, process.env.JWT_SECRET, { expiresIn: "8h" });
   res.json({ token });
 });
@@ -113,7 +121,7 @@ app.post("/checkout", async (req, res) => {
       finalTotal: total + deliveryFee
     });
 
-    console.log(`✅ Order created for ${email}, final total: $${order.finalTotal}`);
+    console.log(`✅ Order created for ${email}, total: $${order.finalTotal}`);
 
     // Send confirmation email
     const mailOptions = {
