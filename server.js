@@ -2,7 +2,7 @@ require("dotenv").config();
 const mongoose = require("mongoose");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
-const auth = require("./middleware/auth");
+const auth = require("./middleware/auth.js");
 const Order = require("./models/Order");
 
 mongoose.connect(process.env.MONGO_URI)
