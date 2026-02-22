@@ -13,14 +13,15 @@ const Order = require('./models/Order');
 const app = express();
 
 // ---------------------------
-// CORS middleware (prevents browser blocking)
+// CORS setup for Netlify frontend
 // ---------------------------
 const allowedOrigins = ["https://bloomdropgpt.netlify.app"];
+
 app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true); // allow Postman, curl, server-to-server
-    if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = `❌ CORS: Origin not allowed: ${origin}`;
+  origin: function(origin, callback) {
+    if (!origin) return callback(null, true); // allow server-to-server or curl
+    if (!allowedOrigins.includes(origin)) {
+      const msg = `❌ CORS blocked for origin: ${origin}`;
       return callback(new Error(msg), false);
     }
     return callback(null, true);
@@ -29,10 +30,12 @@ app.use(cors({
   allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
-// Preflight requests
+// Handle preflight OPTIONS requests
 app.options("*", cors());
 
-// Body parser
+// ---------------------------
+// Middleware
+// ---------------------------
 app.use(express.json());
 
 // ---------------------------
@@ -91,12 +94,18 @@ const transporter = nodemailer.createTransport({
 
 // Admin login
 app.post("/admin/login", (req, res) => {
-  const { email, password } = req.body;
-  if (email !== ADMIN_EMAIL || !bcrypt.compareSync(password, ADMIN_PASSWORD_HASH)) {
-    return res.status(401).json({ error: "Invalid credentials" });
+  try {
+    const { email, password } = req.body;
+    if (email !== ADMIN_EMAIL || !bcrypt.compareSync(password, ADMIN_PASSWORD_HASH)) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+    const token = jwt.sign({ admin: true }, process.env.JWT_SECRET, { expiresIn: "8h" });
+    console.log(`✅ Admin logged in: ${email}`);
+    res.json({ token });
+  } catch (err) {
+    console.error("❌ Admin login error:", err);
+    res.status(500).json({ error: "Internal server error" });
   }
-  const token = jwt.sign({ admin: true }, process.env.JWT_SECRET, { expiresIn: "8h" });
-  res.json({ token });
 });
 
 // Checkout / place order
@@ -104,6 +113,7 @@ app.post("/checkout", async (req, res) => {
   try {
     const { email, city, items, total } = req.body;
 
+    // Delivery fee logic
     const deliveryZones = [
       { zone: "New York", fee: 5 },
       { zone: "Los Angeles", fee: 7 },
@@ -154,7 +164,7 @@ app.get("/orders", auth, async (req, res) => {
   }
 });
 
-// Admin: update order status
+// Admin: update order status (protected)
 app.put("/orders/:id/status", auth, async (req, res) => {
   try {
     const { status } = req.body;
