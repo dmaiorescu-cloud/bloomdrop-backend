@@ -19,5 +19,13 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs"
+  "type": "commonjs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dmaiorescu-cloud/bloomdrop-backend.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dmaiorescu-cloud/bloomdrop-backend/issues"
+  },
+  "homepage": "https://github.com/dmaiorescu-cloud/bloomdrop-backend#readme"
 }

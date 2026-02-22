@@ -1,14 +1,15 @@
 // src/server.js
-require('dotenv').config();
-const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const nodemailer = require('nodemailer');
+require("dotenv").config();
+const express = require("express");
+const mongoose = require("mongoose");
+const cors = require("cors");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const nodemailer = require("nodemailer");
 
-const auth = require('./middleware/auth');
-const Order = require('./models/Order');
+const auth = require("./middleware/auth");
+const Order = require("./models/Order");
+const Product = require("./models/Product"); // <-- Added product model
 
 const app = express();
 
@@ -16,7 +17,6 @@ const app = express();
 // CORS setup for Netlify frontend
 // ---------------------------
 const allowedOrigins = ["https://bloomdropgpt.netlify.app"];
-
 app.use(cors({
   origin: function(origin, callback) {
     if (!origin) return callback(null, true); // allow server-to-server or curl
@@ -39,7 +39,7 @@ app.options("*", cors());
 app.use(express.json());
 
 // ---------------------------
-// MongoDB connection with logging
+// MongoDB connection
 // ---------------------------
 const MONGO_URI = process.env.MONGO_URI;
 if (!MONGO_URI) {
@@ -54,19 +54,11 @@ mongoose.connect(MONGO_URI, {
   connectTimeoutMS: 10000
 });
 
-mongoose.connection.on('connected', () => {
-  console.log(`✅ MongoDB connected to ${MONGO_URI}`);
-});
+mongoose.connection.on('connected', () => console.log(`✅ MongoDB connected to ${MONGO_URI}`));
+mongoose.connection.on('error', (err) => console.error('❌ MongoDB connection error:', err));
+mongoose.connection.on('disconnected', () => console.warn('⚠️ MongoDB disconnected'));
 
-mongoose.connection.on('error', (err) => {
-  console.error('❌ MongoDB connection error:', err);
-});
-
-mongoose.connection.on('disconnected', () => {
-  console.warn('⚠️ MongoDB disconnected');
-});
-
-// Optional: log all queries for debugging
+// Optional: log queries
 mongoose.set('debug', (collection, method, query, doc) => {
   console.log(`MongoDB: ${collection}.${method}`, JSON.stringify(query), doc || '');
 });
@@ -125,10 +117,9 @@ app.post("/checkout", async (req, res) => {
     const order = await Order.create({
       email,
       city,
-      items,
-      total,
-      deliveryFee,
-      finalTotal: total + deliveryFee
+      products: items.map(i=>({ productId: i.productId, name: i.name, quantity: i.qty })),
+      finalTotal: total + deliveryFee,
+      status: "pending"
     });
 
     console.log(`✅ Order created for ${email}, total: $${order.finalTotal}`);
@@ -152,8 +143,10 @@ app.post("/checkout", async (req, res) => {
   }
 });
 
-// Admin: get all orders (protected)
-app.get("/orders", auth, async (req, res) => {
+// ---------------------------
+// Orders routes (admin only)
+// ---------------------------
+app.get("/api/orders", auth, async (req, res) => {
   try {
     const orders = await Order.find().sort({ createdAt: -1 });
     console.log(`✅ Fetched ${orders.length} orders`);
@@ -164,20 +157,70 @@ app.get("/orders", auth, async (req, res) => {
   }
 });
 
-// Admin: update order status (protected)
-app.put("/orders/:id/status", auth, async (req, res) => {
+app.put("/api/orders/:id/status", auth, async (req, res) => {
   try {
-    const { status } = req.body;
-    const updated = await Order.findByIdAndUpdate(req.params.id, { status }, { new: true });
+    const { status, products } = req.body;
+    const updated = await Order.findByIdAndUpdate(
+      req.params.id,
+      { status, products },
+      { new: true }
+    );
     if (updated) {
       console.log(`✅ Updated order ${updated._id} status to ${status}`);
-      res.json({ success: true });
+      res.json(updated);
     } else {
       console.warn(`⚠️ Order ${req.params.id} not found`);
       res.status(404).json({ error: "Order not found" });
     }
   } catch (err) {
     console.error("❌ Update order status error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.delete("/api/orders/:id", auth, async (req, res) => {
+  try {
+    await Order.findByIdAndDelete(req.params.id);
+    console.log(`✅ Order ${req.params.id} deleted`);
+    res.json({ message: "Deleted" });
+  } catch (err) {
+    console.error("❌ Delete order error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ---------------------------
+// Products routes (admin + public)
+// ---------------------------
+app.get("/api/products", async (req, res) => {
+  try {
+    const products = await Product.find();
+    res.json(products);
+  } catch (err) {
+    console.error("❌ Get products error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/products", auth, async (req, res) => {
+  try {
+    const { name, price, stock } = req.body;
+    const product = await Product.create({ name, price, stock });
+    console.log(`✅ Product added: ${name}`);
+    res.status(201).json(product);
+  } catch (err) {
+    console.error("❌ Add product error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.delete("/api/products/:id", auth, async (req, res) => {
+  try {
+    await Product.findByIdAndDelete(req.params.id);
+    console.log(`✅ Product ${req.params.id} deleted`);
+    res.json({ message: "Deleted" });
+  } catch (err) {
+    console.error("❌ Delete product error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
