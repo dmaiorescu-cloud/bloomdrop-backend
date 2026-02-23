@@ -16,7 +16,7 @@ const app = express();
 // ---------------------------
 // CORS setup for Netlify frontend
 // ---------------------------
-const allowedOrigins = ["https://bloomdropgpt.netlify.app"];
+const allowedOrigins = ["https://magazinas.netlify.app"];
 
 app.use(cors({
   origin: function(origin, callback) {
