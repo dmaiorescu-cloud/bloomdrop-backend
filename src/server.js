@@ -12,53 +12,45 @@ const Product = require("./models/Product");
 
 const app = express();
 
-// ---------------------------
-// CORS setup for Netlify frontend
-// ---------------------------
+/* ---------------------------
+   CORS
+--------------------------- */
 const allowedOrigins = ["https://magazinas.netlify.app"];
 
 app.use(cors({
-  origin: function(origin, callback) {
+  origin: function (origin, callback) {
     if (!origin) return callback(null, true);
     if (!allowedOrigins.includes(origin)) {
-      return callback(new Error(`CORS blocked for origin: ${origin}`), false);
+      return callback(new Error("CORS blocked"), false);
     }
-    return callback(null, true);
-  },
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"]
+    callback(null, true);
+  }
 }));
-
-app.options("*", cors());
 
 app.use(express.json());
 
-// ---------------------------
-// MongoDB
-// ---------------------------
+/* ---------------------------
+   MongoDB
+--------------------------- */
 if (!process.env.MONGO_URI) {
-  console.error("❌ MONGO_URI not set");
+  console.error("❌ MONGO_URI missing");
   process.exit(1);
 }
 
 mongoose.connect(process.env.MONGO_URI);
-
-mongoose.connection.on("connected", () =>
+mongoose.connection.once("open", () =>
   console.log("✅ MongoDB connected")
 );
-mongoose.connection.on("error", err =>
-  console.error("❌ MongoDB error:", err)
-);
 
-// ---------------------------
-// Admin credentials
-// ---------------------------
+/* ---------------------------
+   Admin
+--------------------------- */
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 const ADMIN_PASSWORD_HASH = bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10);
 
-// ---------------------------
-// Nodemailer
-// ---------------------------
+/* ---------------------------
+   Mail
+--------------------------- */
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
@@ -67,18 +59,34 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-// ===========================
-// ROUTES
-// ===========================
+/* ---------------------------
+   Helpers
+--------------------------- */
+function getDeliveryFee(city) {
+  const zones = [
+    { zone: "New York", fee: 5 },
+    { zone: "Los Angeles", fee: 7 },
+    { zone: "Other", fee: 10 }
+  ];
 
-// ---------------------------
-// Admin login
-// ---------------------------
+  return (zones.find(z => z.zone === city) ||
+          zones.find(z => z.zone === "Other")).fee;
+}
+
+/* ===========================
+   ROUTES
+=========================== */
+
+/* ---------------------------
+   Admin login
+--------------------------- */
 app.post("/admin/login", (req, res) => {
   const { email, password } = req.body;
 
-  if (email !== ADMIN_EMAIL ||
-      !bcrypt.compareSync(password, ADMIN_PASSWORD_HASH)) {
+  if (
+    email !== ADMIN_EMAIL ||
+    !bcrypt.compareSync(password, ADMIN_PASSWORD_HASH)
+  ) {
     return res.status(401).json({ error: "Invalid credentials" });
   }
 
@@ -91,63 +99,33 @@ app.post("/admin/login", (req, res) => {
   res.json({ token });
 });
 
-// ---------------------------
-// PRODUCTS (Shop + Admin)
-// ---------------------------
-
-// Public - Shop page
+/* ---------------------------
+   Products
+--------------------------- */
 app.get("/api/products", async (req, res) => {
-  try {
-    const products = await Product.find();
-    res.json(products);
-  } catch (err) {
-    console.error("❌ Get products error:", err);
-    res.status(500).json({ error: "Internal server error" });
-  }
+  res.json(await Product.find());
 });
 
-// Admin - Add product (WITH IMAGE SUPPORT)
 app.post("/api/products", auth, async (req, res) => {
-  try {
-    const { name, price, stock, image } = req.body;
-
-    const product = await Product.create({
-      name,
-      price,
-      stock,
-      image
-    });
-
-    console.log(`✅ Product added: ${name}`);
-    res.status(201).json(product);
-
-  } catch (err) {
-    console.error("❌ Add product error:", err);
-    res.status(500).json({ error: "Internal server error" });
-  }
+  const product = await Product.create(req.body);
+  res.status(201).json(product);
 });
 
-// Admin - Delete product
 app.delete("/api/products/:id", auth, async (req, res) => {
-  try {
-    await Product.findByIdAndDelete(req.params.id);
-    console.log(`✅ Product deleted: ${req.params.id}`);
-    res.json({ message: "Deleted" });
-  } catch (err) {
-    console.error("❌ Delete product error:", err);
-    res.status(500).json({ error: "Internal server error" });
-  }
+  await Product.findByIdAndDelete(req.params.id);
+  res.json({ message: "Deleted" });
 });
 
-// ---------------------------
-// CHECKOUT (Stock Deduction)
-// ---------------------------
+/* ---------------------------
+   Checkout (FIXED TOTAL)
+--------------------------- */
 app.post("/checkout", async (req, res) => {
   try {
-    const { email, city, items, total } = req.body;
+    const { email, city, items } = req.body;
 
-    // Validate and deduct stock safely
-    for (let item of items) {
+    let subtotal = 0;
+
+    for (const item of items) {
       const product = await Product.findById(item.productId);
 
       if (!product)
@@ -158,23 +136,18 @@ app.post("/checkout", async (req, res) => {
           error: `Not enough stock for ${product.name}`
         });
 
-      // Deduct the stock after validation
+      subtotal += product.price * item.qty;
+    }
+
+    const deliveryFee = getDeliveryFee(city);
+    const finalTotal = subtotal + deliveryFee;
+
+    // Deduct stock AFTER validation
+    for (const item of items) {
+      const product = await Product.findById(item.productId);
       product.stock -= item.qty;
       await product.save();
     }
-
-    // Delivery fee logic
-    const deliveryZones = [
-      { zone: "New York", fee: 5 },
-      { zone: "Los Angeles", fee: 7 },
-      { zone: "Other", fee: 10 }
-    ];
-
-    const zone =
-      deliveryZones.find(z => z.zone === city) ||
-      deliveryZones.find(z => z.zone === "Other");
-
-    const deliveryFee = zone.fee;
 
     const order = await Order.create({
       email,
@@ -184,84 +157,76 @@ app.post("/checkout", async (req, res) => {
         name: i.name,
         quantity: i.qty
       })),
-      finalTotal: total + deliveryFee,
+      finalTotal,
       status: "pending"
     });
 
-    // Send confirmation email
     transporter.sendMail({
-      from: process.env.EMAIL_USER,
       to: email,
       subject: "BloomDrop Order Confirmation",
-      text: `Thank you for your order! Total: $${order.finalTotal}`
+      text: `Thank you for your order! Total: $${finalTotal}`
     });
 
     res.json(order);
 
   } catch (err) {
-    console.error("❌ Checkout error:", err);
+    console.error(err);
     res.status(500).json({ error: "Checkout failed" });
   }
 });
 
-// ---------------------------
-// ORDERS (Admin)
-// ---------------------------
-
+/* ---------------------------
+   Orders (Admin)
+--------------------------- */
 app.get("/api/orders", auth, async (req, res) => {
-  try {
-    const orders = await Order.find().sort({ createdAt: -1 });
-    res.json(orders);
-  } catch (err) {
-    console.error("❌ Get orders error:", err);
-    res.status(500).json({ error: "Internal server error" });
-  }
+  res.json(await Order.find().sort({ createdAt: -1 }));
 });
 
-// Admin - Update order status and quantities
+/* ---------------------------
+   Update order (FIXED TOTAL)
+--------------------------- */
 app.put("/api/orders/:id/status", auth, async (req, res) => {
   try {
-    const { status, products } = req.body;
+    const { status, products, city } = req.body;
+
+    let subtotal = 0;
+
+    for (const item of products) {
+      const product = await Product.findById(item.productId);
+      if (!product) continue;
+      subtotal += product.price * item.quantity;
+    }
+
+    const deliveryFee = getDeliveryFee(city);
+    const finalTotal = subtotal + deliveryFee;
 
     const updated = await Order.findByIdAndUpdate(
       req.params.id,
-      { status, products },
+      {
+        status,
+        products,
+        finalTotal
+      },
       { new: true }
     );
-
-    if (!updated)
-      return res.status(404).json({ error: "Order not found" });
-
-    // Re-calculate stock deduction when updating quantities
-    for (let item of products) {
-      const product = await Product.findById(item.productId);
-      if (product) {
-        product.stock -= item.quantity;
-        await product.save();
-      }
-    }
 
     res.json(updated);
 
   } catch (err) {
-    console.error("❌ Update order error:", err);
-    res.status(500).json({ error: "Internal server error" });
+    console.error(err);
+    res.status(500).json({ error: "Update failed" });
   }
 });
 
-// Admin - Delete order
 app.delete("/api/orders/:id", auth, async (req, res) => {
-  try {
-    await Order.findByIdAndDelete(req.params.id);
-    res.json({ message: "Deleted" });
-  } catch (err) {
-    console.error("❌ Delete order error:", err);
-    res.status(500).json({ error: "Internal server error" });
-  }
+  await Order.findByIdAndDelete(req.params.id);
+  res.json({ message: "Deleted" });
 });
 
-// ---------------------------
-// Start server
-// ---------------------------
+/* ---------------------------
+   Start
+--------------------------- */
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+app.listen(PORT, () =>
+  console.log(`🚀 Server running on port ${PORT}`)
+);
