@@ -1,4 +1,3 @@
-// src/server.js
 require("dotenv").config();
 const express = require("express");
 const mongoose = require("mongoose");
@@ -26,8 +25,8 @@ app.use(cors({
     }
     return callback(null, true);
   },
-  methods: ["GET","POST","PUT","DELETE","OPTIONS"],
-  allowedHeaders: ["Content-Type","Authorization"]
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
 app.options("*", cors());
@@ -147,7 +146,7 @@ app.post("/checkout", async (req, res) => {
   try {
     const { email, city, items, total } = req.body;
 
-    // Validate + deduct stock safely
+    // Validate and deduct stock safely
     for (let item of items) {
       const product = await Product.findById(item.productId);
 
@@ -159,6 +158,7 @@ app.post("/checkout", async (req, res) => {
           error: `Not enough stock for ${product.name}`
         });
 
+      // Deduct the stock after validation
       product.stock -= item.qty;
       await product.save();
     }
@@ -207,6 +207,7 @@ app.post("/checkout", async (req, res) => {
 // ---------------------------
 // ORDERS (Admin)
 // ---------------------------
+
 app.get("/api/orders", auth, async (req, res) => {
   try {
     const orders = await Order.find().sort({ createdAt: -1 });
@@ -217,6 +218,7 @@ app.get("/api/orders", auth, async (req, res) => {
   }
 });
 
+// Admin - Update order status and quantities
 app.put("/api/orders/:id/status", auth, async (req, res) => {
   try {
     const { status, products } = req.body;
@@ -230,6 +232,15 @@ app.put("/api/orders/:id/status", auth, async (req, res) => {
     if (!updated)
       return res.status(404).json({ error: "Order not found" });
 
+    // Re-calculate stock deduction when updating quantities
+    for (let item of products) {
+      const product = await Product.findById(item.productId);
+      if (product) {
+        product.stock -= item.quantity;
+        await product.save();
+      }
+    }
+
     res.json(updated);
 
   } catch (err) {
@@ -238,6 +249,7 @@ app.put("/api/orders/:id/status", auth, async (req, res) => {
   }
 });
 
+// Admin - Delete order
 app.delete("/api/orders/:id", auth, async (req, res) => {
   try {
     await Order.findByIdAndDelete(req.params.id);
