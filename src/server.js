@@ -11,12 +11,12 @@ const auth = require("./middleware/auth");
 
 const app = express();
 
-/* ---------------- CORS (MUST BE FIRST) ---------------- */
+/* ---------------- CORS (Netlify frontend) ---------------- */
 const allowedOrigins = ["https://magazinas.netlify.app"];
 
 app.use(cors({
   origin: function (origin, callback) {
-    if (!origin) return callback(null, true); // allow server-to-server
+    if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) return callback(null, true);
     return callback(new Error("CORS not allowed"), false);
   },
@@ -31,7 +31,10 @@ app.use(express.json());
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB connected"))
-  .catch(err => console.error("❌ Mongo error:", err));
+  .catch(err => {
+    console.error("❌ Mongo error:", err);
+    process.exit(1);
+  });
 
 /* ---------------- Helpers ---------------- */
 function getDeliveryFee(city) {
@@ -43,16 +46,15 @@ function getDeliveryFee(city) {
 }
 
 /* ---------------- Admin Login ---------------- */
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
-// hash ONCE at startup (NOT per request)
-const ADMIN_PASSWORD_HASH = bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10);
-
 app.post("/admin/login", (req, res) => {
   const { email, password } = req.body;
 
   if (
-    email !== ADMIN_EMAIL ||
-    !bcrypt.compareSync(password, ADMIN_PASSWORD_HASH)
+    email !== process.env.ADMIN_EMAIL ||
+    !bcrypt.compareSync(
+      password,
+      bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10)
+    )
   ) {
     return res.status(401).json({ error: "Invalid credentials" });
   }
@@ -80,16 +82,14 @@ app.post("/api/products", auth, async (req, res) => {
   res.json(product);
 });
 
-// ✅ Update price & stock (admin)
+// Update product price & stock (admin)
 app.put("/api/products/:id", auth, async (req, res) => {
   const { price, stock } = req.body;
-
   const updated = await Product.findByIdAndUpdate(
     req.params.id,
     { price, stock },
     { new: true }
   );
-
   res.json(updated);
 });
 
@@ -100,7 +100,6 @@ app.delete("/api/products/:id", auth, async (req, res) => {
 });
 
 /* ---------------- Checkout ---------------- */
-
 app.post("/checkout", async (req, res) => {
   try {
     const { email, city, items } = req.body;
@@ -119,11 +118,10 @@ app.post("/checkout", async (req, res) => {
 
       subtotal += product.price * item.qty;
 
-      // 🔒 SNAPSHOT PRICE
       orderProducts.push({
         productId: product._id,
         name: product.name,
-        price: product.price,
+        price: product.price,     // 🔒 snapshot price
         quantity: item.qty
       });
     }
@@ -152,9 +150,9 @@ app.post("/checkout", async (req, res) => {
   }
 });
 
-/* ---------------- Orders ---------------- */
+/* ---------------- Orders (Admin) ---------------- */
 
-// Admin get orders
+// Get orders
 app.get("/api/orders", auth, async (req, res) => {
   const orders = await Order.find().sort({ createdAt: -1 });
   res.json(orders);
@@ -163,29 +161,41 @@ app.get("/api/orders", auth, async (req, res) => {
 // ✅ Update order status & quantities (PRICE SAFE)
 app.put("/api/orders/:id/status", auth, async (req, res) => {
   try {
-    const { status, products, city } = req.body;
+    const { status, products } = req.body;
+
+    const order = await Order.findById(req.params.id);
+    if (!order)
+      return res.status(404).json({ error: "Order not found" });
 
     let subtotal = 0;
 
-    // Recalculate using SNAPSHOT prices
-    products.forEach(p => {
-      subtotal += p.price * p.quantity;
+    const updatedProducts = products.map(p => {
+      const existing = order.products.find(
+        op => op.productId.toString() === p.productId
+      );
+
+      if (!existing)
+        throw new Error("Product mismatch");
+
+      subtotal += existing.price * p.quantity;
+
+      return {
+        productId: existing.productId,
+        name: existing.name,
+        price: existing.price,   // 🔒 preserved
+        quantity: p.quantity
+      };
     });
 
-    const finalTotal = subtotal + getDeliveryFee(city);
+    order.status = status;
+    order.products = updatedProducts;
+    order.finalTotal = subtotal + getDeliveryFee(order.city);
 
-    const updated = await Order.findByIdAndUpdate(
-      req.params.id,
-      { status, products, finalTotal },
-      { new: true }
-    );
+    await order.save();
 
-    if (!updated)
-      return res.status(404).json({ error: "Order not found" });
-
-    res.json(updated);
+    res.json(order);
   } catch (err) {
-    console.error("❌ Order update error:", err);
+    console.error("❌ Order update error:", err.message);
     res.status(500).json({ error: "Update failed" });
   }
 });
@@ -198,6 +208,6 @@ app.delete("/api/orders/:id", auth, async (req, res) => {
 
 /* ---------------- Server ---------------- */
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () =>
-  console.log(`🚀 Server running on port ${PORT}`)
-);
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
