@@ -2,22 +2,57 @@ require("dotenv").config();
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
 
 const Product = require("./models/Product");
 const Order = require("./models/Order");
 const auth = require("./middleware/auth");
 
 const app = express();
-const jwt = require("jsonwebtoken");
-const bcrypt = require("bcryptjs");
+
+/* ---------------- CORS (MUST BE FIRST) ---------------- */
+const allowedOrigins = ["https://magazinas.netlify.app"];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true); // allow server-to-server
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error("CORS not allowed"), false);
+  },
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+}));
+
+app.options("*", cors());
+app.use(express.json());
+
+/* ---------------- MongoDB ---------------- */
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => console.log("✅ MongoDB connected"))
+  .catch(err => console.error("❌ Mongo error:", err));
+
+/* ---------------- Helpers ---------------- */
+function getDeliveryFee(city) {
+  if (!city) return 0;
+  const c = city.toLowerCase();
+  if (c.includes("dubai")) return 20;
+  if (c.includes("abu")) return 25;
+  return 30;
+}
 
 /* ---------------- Admin Login ---------------- */
-app.post("/admin/login", async (req, res) => {
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
+// hash ONCE at startup (NOT per request)
+const ADMIN_PASSWORD_HASH = bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10);
+
+app.post("/admin/login", (req, res) => {
   const { email, password } = req.body;
 
   if (
-    email !== process.env.ADMIN_EMAIL ||
-    !bcrypt.compareSync(password, bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10))
+    email !== ADMIN_EMAIL ||
+    !bcrypt.compareSync(password, ADMIN_PASSWORD_HASH)
   ) {
     return res.status(401).json({ error: "Invalid credentials" });
   }
@@ -30,50 +65,35 @@ app.post("/admin/login", async (req, res) => {
 
   res.json({ token });
 });
-app.use(cors());
-app.use(express.json());
-
-/* ---------------- MongoDB ---------------- */
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log("MongoDB connected"))
-  .catch(err => console.error("Mongo error:", err));
-
-/* ---------------- Helpers ---------------- */
-function getDeliveryFee(city) {
-  if (!city) return 0;
-  const c = city.toLowerCase();
-  if (c.includes("dubai")) return 20;
-  if (c.includes("abu")) return 25;
-  return 30;
-}
 
 /* ---------------- Products ---------------- */
 
-// Get products
+// Get products (public)
 app.get("/api/products", async (req, res) => {
   const products = await Product.find();
   res.json(products);
 });
 
-// Add product
+// Add product (admin)
 app.post("/api/products", auth, async (req, res) => {
   const product = await Product.create(req.body);
   res.json(product);
 });
 
-// Update price & stock
+// ✅ Update price & stock (admin)
 app.put("/api/products/:id", auth, async (req, res) => {
   const { price, stock } = req.body;
+
   const updated = await Product.findByIdAndUpdate(
     req.params.id,
     { price, stock },
     { new: true }
   );
+
   res.json(updated);
 });
 
-// Delete product
+// Delete product (admin)
 app.delete("/api/products/:id", auth, async (req, res) => {
   await Product.findByIdAndDelete(req.params.id);
   res.json({ success: true });
@@ -99,10 +119,11 @@ app.post("/checkout", async (req, res) => {
 
       subtotal += product.price * item.qty;
 
+      // 🔒 SNAPSHOT PRICE
       orderProducts.push({
         productId: product._id,
         name: product.name,
-        price: product.price,     // 🔒 snapshot price
+        price: product.price,
         quantity: item.qty
       });
     }
@@ -126,7 +147,7 @@ app.post("/checkout", async (req, res) => {
 
     res.json(order);
   } catch (err) {
-    console.error("Checkout error:", err);
+    console.error("❌ Checkout error:", err);
     res.status(500).json({ error: "Checkout failed" });
   }
 });
@@ -139,7 +160,7 @@ app.get("/api/orders", auth, async (req, res) => {
   res.json(orders);
 });
 
-// ✅ FIXED: Update order status & quantities AND RECALCULATE TOTAL
+// ✅ Update order status & quantities (PRICE SAFE)
 app.put("/api/orders/:id/status", auth, async (req, res) => {
   try {
     const { status, products, city } = req.body;
@@ -155,11 +176,7 @@ app.put("/api/orders/:id/status", auth, async (req, res) => {
 
     const updated = await Order.findByIdAndUpdate(
       req.params.id,
-      {
-        status,
-        products,
-        finalTotal
-      },
+      { status, products, finalTotal },
       { new: true }
     );
 
@@ -168,7 +185,7 @@ app.put("/api/orders/:id/status", auth, async (req, res) => {
 
     res.json(updated);
   } catch (err) {
-    console.error("Order update error:", err);
+    console.error("❌ Order update error:", err);
     res.status(500).json({ error: "Update failed" });
   }
 });
@@ -181,4 +198,6 @@ app.delete("/api/orders/:id", auth, async (req, res) => {
 
 /* ---------------- Server ---------------- */
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log("Server running on", PORT));
+app.listen(PORT, () =>
+  console.log(`🚀 Server running on port ${PORT}`)
+);
