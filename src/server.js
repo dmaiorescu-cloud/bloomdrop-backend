@@ -11,14 +11,14 @@ const auth = require("./middleware/auth");
 
 const app = express();
 
-/* ---------------- CORS (Netlify frontend) ---------------- */
+/* ---------------- CORS ---------------- */
 const allowedOrigins = ["https://magazinas.netlify.app"];
 
 app.use(cors({
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) return callback(null, true);
-    return callback(new Error("CORS not allowed"), false);
+    return callback(new Error("CORS blocked"), false);
   },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"]
@@ -69,31 +69,25 @@ app.post("/admin/login", (req, res) => {
 });
 
 /* ---------------- Products ---------------- */
-
-// Get products (public)
-app.get("/api/products", async (req, res) => {
-  const products = await Product.find();
-  res.json(products);
+app.get("/api/products", async (_, res) => {
+  res.json(await Product.find());
 });
 
-// Add product (admin)
 app.post("/api/products", auth, async (req, res) => {
-  const product = await Product.create(req.body);
-  res.json(product);
+  res.json(await Product.create(req.body));
 });
 
-// Update product price & stock (admin)
 app.put("/api/products/:id", auth, async (req, res) => {
   const { price, stock } = req.body;
-  const updated = await Product.findByIdAndUpdate(
-    req.params.id,
-    { price, stock },
-    { new: true }
+  res.json(
+    await Product.findByIdAndUpdate(
+      req.params.id,
+      { price, stock },
+      { new: true }
+    )
   );
-  res.json(updated);
 });
 
-// Delete product (admin)
 app.delete("/api/products/:id", auth, async (req, res) => {
   await Product.findByIdAndDelete(req.params.id);
   res.json({ success: true });
@@ -109,10 +103,7 @@ app.post("/checkout", async (req, res) => {
 
     for (const item of items) {
       const product = await Product.findById(item.productId);
-
-      if (!product)
-        return res.status(400).json({ error: "Product not found" });
-
+      if (!product) return res.status(400).json({ error: "Product not found" });
       if (product.stock < item.qty)
         return res.status(400).json({ error: "Out of stock" });
 
@@ -121,14 +112,11 @@ app.post("/checkout", async (req, res) => {
       orderProducts.push({
         productId: product._id,
         name: product.name,
-        price: product.price,     // 🔒 snapshot price
+        price: product.price,
         quantity: item.qty
       });
     }
 
-    const finalTotal = subtotal + getDeliveryFee(city);
-
-    // Deduct stock AFTER validation
     for (const item of items) {
       await Product.findByIdAndUpdate(item.productId, {
         $inc: { stock: -item.qty }
@@ -139,7 +127,7 @@ app.post("/checkout", async (req, res) => {
       email,
       city,
       products: orderProducts,
-      finalTotal,
+      finalTotal: subtotal + getDeliveryFee(city),
       status: "pending"
     });
 
@@ -150,20 +138,16 @@ app.post("/checkout", async (req, res) => {
   }
 });
 
-/* ---------------- Orders (Admin) ---------------- */
-
-// Get orders
-app.get("/api/orders", auth, async (req, res) => {
-  const orders = await Order.find().sort({ createdAt: -1 });
-  res.json(orders);
+/* ---------------- Orders ---------------- */
+app.get("/api/orders", auth, async (_, res) => {
+  res.json(await Order.find().sort({ createdAt: -1 }));
 });
 
-// ✅ Update order status & quantities (PRICE SAFE)
 app.put("/api/orders/:id/status", auth, async (req, res) => {
   try {
     const { status, products } = req.body;
-
     const order = await Order.findById(req.params.id);
+
     if (!order)
       return res.status(404).json({ error: "Order not found" });
 
@@ -171,7 +155,7 @@ app.put("/api/orders/:id/status", auth, async (req, res) => {
 
     const updatedProducts = products.map(p => {
       const existing = order.products.find(
-        op => op.productId.toString() === p.productId
+        op => String(op.productId) === String(p.productId)
       );
 
       if (!existing)
@@ -182,7 +166,7 @@ app.put("/api/orders/:id/status", auth, async (req, res) => {
       return {
         productId: existing.productId,
         name: existing.name,
-        price: existing.price,   // 🔒 preserved
+        price: existing.price,
         quantity: p.quantity
       };
     });
@@ -192,15 +176,13 @@ app.put("/api/orders/:id/status", auth, async (req, res) => {
     order.finalTotal = subtotal + getDeliveryFee(order.city);
 
     await order.save();
-
     res.json(order);
   } catch (err) {
     console.error("❌ Order update error:", err.message);
-    res.status(500).json({ error: "Update failed" });
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Delete order
 app.delete("/api/orders/:id", auth, async (req, res) => {
   await Order.findByIdAndDelete(req.params.id);
   res.json({ success: true });
@@ -208,6 +190,6 @@ app.delete("/api/orders/:id", auth, async (req, res) => {
 
 /* ---------------- Server ---------------- */
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+app.listen(PORT, () =>
+  console.log(`🚀 Server running on port ${PORT}`)
+);
