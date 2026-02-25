@@ -4,7 +4,7 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
-
+const authRoutes = require("./routes/auth");
 const Product = require("./models/Product");
 const Order = require("./models/Order");
 const auth = require("./middleware/auth");
@@ -26,7 +26,7 @@ app.use(cors({
 
 app.options("*", cors());
 app.use(express.json());
-
+app.use("/api/auth", authRoutes);
 /* ---------------- MongoDB ---------------- */
 mongoose
   .connect(process.env.MONGO_URI)

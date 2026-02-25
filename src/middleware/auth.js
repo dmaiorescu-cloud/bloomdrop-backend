@@ -1,24 +1,21 @@
-const jwt = require("jsonwebtoken");
+const User = require("../models/User");
 
-module.exports = function (req, res, next) {
+module.exports = async function (req, res, next) {
   const authHeader = req.headers.authorization;
 
-  if (!authHeader) {
-    return res.status(401).json({ error: "No token provided" });
-  }
+  if (!authHeader || !authHeader.startsWith("Basic "))
+    return res.status(401).json({ message: "Unauthorized" });
 
-  const token = authHeader.split(" ")[1];
+  const base64Credentials = authHeader.split(" ")[1];
+  const credentials = Buffer.from(base64Credentials, "base64").toString("ascii");
+  const [username, password] = credentials.split(":");
 
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  const user = await User.findOne({ username });
+  if (!user) return res.status(401).json({ message: "Invalid credentials" });
 
-    if (!decoded.admin) {
-      return res.status(403).json({ error: "Admin access required" });
-    }
+  const valid = await user.comparePassword(password);
+  if (!valid) return res.status(401).json({ message: "Invalid credentials" });
 
-    req.admin = decoded;
-    next();
-  } catch (err) {
-    return res.status(401).json({ error: "Invalid token" });
-  }
+  req.user = user;
+  next();
 };

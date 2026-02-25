@@ -1,30 +1,52 @@
 const express = require("express");
-const router = express.Router();
 const Order = require("../models/Order");
+const Product = require("../models/Product");
+const auth = require("../middleware/auth");
 
-// GET all orders
-router.get("/", async (req, res) => {
-  try {
-    const orders = await Order.find();
-    res.json(orders);
-  } catch (err) { res.status(500).json({ message: err.message }); }
+const router = express.Router();
+
+router.get("/", auth, async (req, res) => {
+  const orders = await Order.find({ user: req.user._id }).populate("products.product");
+  res.json(orders);
 });
 
-// PUT order status + products
-router.put("/:id/status", async (req, res) => {
-  const { status, products } = req.body;
-  try {
-    const order = await Order.findByIdAndUpdate(req.params.id, { status, products }, { new: true });
-    res.json(order);
-  } catch (err) { res.status(400).json({ message: err.message }); }
+router.post("/", auth, async (req, res) => {
+  const { products } = req.body;
+
+  for (let item of products) {
+    const product = await Product.findById(item.product);
+    if (product.stock < item.quantity)
+      return res.status(400).json({ message: "Not enough stock" });
+
+    product.stock -= item.quantity;
+    await product.save();
+  }
+
+  const order = new Order({
+    user: req.user._id,
+    products
+  });
+
+  await order.save();
+  res.json(order);
 });
 
-// DELETE order
-router.delete("/:id", async (req, res) => {
-  try {
-    await Order.findByIdAndDelete(req.params.id);
-    res.json({ message: "Deleted" });
-  } catch (err) { res.status(500).json({ message: err.message }); }
+router.put("/:id", auth, async (req, res) => {
+  const order = await Order.findById(req.params.id);
+
+  if (!order) return res.status(404).json({ message: "Not found" });
+
+  for (let item of req.body.products) {
+    const product = await Product.findById(item.product);
+    product.stock += item.quantity;
+    await product.save();
+  }
+
+  order.products = req.body.products;
+  order.status = req.body.status;
+  await order.save();
+
+  res.json(order);
 });
 
 module.exports = router;
