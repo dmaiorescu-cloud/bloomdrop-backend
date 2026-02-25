@@ -8,6 +8,28 @@ const Order = require("./models/Order");
 const auth = require("./middleware/auth");
 
 const app = express();
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
+
+/* ---------------- Admin Login ---------------- */
+app.post("/admin/login", async (req, res) => {
+  const { email, password } = req.body;
+
+  if (
+    email !== process.env.ADMIN_EMAIL ||
+    !bcrypt.compareSync(password, bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10))
+  ) {
+    return res.status(401).json({ error: "Invalid credentials" });
+  }
+
+  const token = jwt.sign(
+    { admin: true },
+    process.env.JWT_SECRET,
+    { expiresIn: "8h" }
+  );
+
+  res.json({ token });
+});
 app.use(cors());
 app.use(express.json());
 
