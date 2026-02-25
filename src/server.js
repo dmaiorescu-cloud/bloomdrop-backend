@@ -7,8 +7,10 @@ const bcrypt = require("bcryptjs");
 const authRoutes = require("./routes/auth");
 const Product = require("./models/Product");
 const Order = require("./models/Order");
+const Cart = require("./models/Cart");
 const auth = require("./middleware/auth");
 const cartRoutes = require("./routes/cart");
+
 const app = express();
 
 /* ---------------- CORS ---------------- */
@@ -39,7 +41,7 @@ mongoose
   });
 
 /* =========================================================
-   ROLE MIDDLEWARE (NEW - does NOT remove anything)
+   ROLE MIDDLEWARE
 ========================================================= */
 
 function requireAdmin(req, res, next) {
@@ -66,7 +68,7 @@ function getDeliveryFee(city) {
 }
 
 /* =========================================================
-   ADMIN LOGIN (FIXED + SECURE)
+   ADMIN LOGIN
 ========================================================= */
 
 app.post("/admin/login", async (req, res) => {
@@ -124,49 +126,63 @@ app.delete("/api/products/:id", auth, requireAdmin, async (req, res) => {
 });
 
 /* =========================================================
-   CHECKOUT (Now requires logged in USER)
+   CHECKOUT (SECURE + DB CART BASED)
 ========================================================= */
 
 app.post("/checkout", auth, requireUser, async (req, res) => {
   try {
-    const { city, items } = req.body;
+
+    const { city, email } = req.body;
+
+    const cart = await Cart.findOne({ userId: req.user._id })
+      .populate("items.productId");
+
+    if (!cart || !cart.items.length) {
+      return res.status(400).json({ error: "Cart is empty" });
+    }
 
     let subtotal = 0;
     const orderProducts = [];
 
-    for (const item of items) {
-      const product = await Product.findById(item.productId);
+    for (const item of cart.items) {
+
+      const product = item.productId;
+
       if (!product)
         return res.status(400).json({ error: "Product not found" });
 
-      if (product.stock < item.qty)
+      if (product.stock < item.quantity)
         return res.status(400).json({ error: "Out of stock" });
 
-      subtotal += product.price * item.qty;
+      subtotal += product.price * item.quantity;
 
       orderProducts.push({
         productId: product._id,
         name: product.name,
         price: product.price,
-        quantity: item.qty
+        quantity: item.quantity
       });
     }
 
     // reduce stock
-    for (const item of items) {
-      await Product.findByIdAndUpdate(item.productId, {
-        $inc: { stock: -item.qty }
+    for (const item of cart.items) {
+      await Product.findByIdAndUpdate(item.productId._id, {
+        $inc: { stock: -item.quantity }
       });
     }
 
     const order = await Order.create({
-      userId: req.user.id,
-      email: req.user.email,
+      userId: req.user._id,
+      email,
       city,
       products: orderProducts,
       finalTotal: subtotal + getDeliveryFee(city),
       status: "pending"
     });
+
+    // clear cart after successful order
+    cart.items = [];
+    await cart.save();
 
     res.json(order);
 
@@ -180,22 +196,20 @@ app.post("/checkout", auth, requireUser, async (req, res) => {
    ORDERS
 ========================================================= */
 
-/* ----- ADMIN: See ALL orders ----- */
 app.get("/api/orders", auth, requireAdmin, async (_, res) => {
   res.json(await Order.find().sort({ createdAt: -1 }));
 });
 
-/* ----- USER: See only THEIR orders ----- */
 app.get("/api/my-orders", auth, requireUser, async (req, res) => {
-  const orders = await Order.find({ userId: req.user.id })
+  const orders = await Order.find({ userId: req.user._id })
     .sort({ createdAt: -1 });
 
   res.json(orders);
 });
 
-/* ----- ADMIN: Update order ----- */
 app.put("/api/orders/:id/status", auth, requireAdmin, async (req, res) => {
   try {
+
     const { status, products } = req.body;
     const order = await Order.findById(req.params.id);
 
@@ -235,7 +249,6 @@ app.put("/api/orders/:id/status", auth, requireAdmin, async (req, res) => {
   }
 });
 
-/* ----- ADMIN: Delete order ----- */
 app.delete("/api/orders/:id", auth, requireAdmin, async (req, res) => {
   await Order.findByIdAndDelete(req.params.id);
   res.json({ success: true });
