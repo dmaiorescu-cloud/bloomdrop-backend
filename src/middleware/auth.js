@@ -1,21 +1,24 @@
-const mongoose = require("mongoose");
+const jwt = require("jsonwebtoken");
 
-const orderSchema = new mongoose.Schema(
-  {
-    email: { type: String, required: true },
-    city: { type: String, required: true },
-    products: [
-      {
-        productId: mongoose.Schema.Types.ObjectId,
-        name: String,
-        price: Number,      // ✅ SNAPSHOT PRICE
-        quantity: Number
-      }
-    ],
-    finalTotal: Number,
-    status: { type: String, default: "pending" }
-  },
-  { timestamps: true }
-);
+module.exports = function (req, res, next) {
+  const authHeader = req.headers.authorization;
 
-module.exports = mongoose.model("Order", orderSchema);
+  if (!authHeader) {
+    return res.status(401).json({ error: "No token provided" });
+  }
+
+  const token = authHeader.split(" ")[1];
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    if (!decoded.admin) {
+      return res.status(403).json({ error: "Admin access required" });
+    }
+
+    req.admin = decoded;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: "Invalid token" });
+  }
+};
