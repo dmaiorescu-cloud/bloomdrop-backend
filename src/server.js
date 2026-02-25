@@ -8,7 +8,7 @@ const authRoutes = require("./routes/auth");
 const Product = require("./models/Product");
 const Order = require("./models/Order");
 const auth = require("./middleware/auth");
-
+const cartRoutes = require("./routes/cart");
 const app = express();
 
 /* ---------------- CORS ---------------- */
@@ -27,6 +27,8 @@ app.use(cors({
 app.options("*", cors());
 app.use(express.json());
 app.use("/api/auth", authRoutes);
+app.use("/api/cart", cartRoutes);
+
 /* ---------------- MongoDB ---------------- */
 mongoose
   .connect(process.env.MONGO_URI)
@@ -35,6 +37,24 @@ mongoose
     console.error("❌ Mongo error:", err);
     process.exit(1);
   });
+
+/* =========================================================
+   ROLE MIDDLEWARE (NEW - does NOT remove anything)
+========================================================= */
+
+function requireAdmin(req, res, next) {
+  if (!req.user || req.user.role !== "admin") {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  next();
+}
+
+function requireUser(req, res, next) {
+  if (!req.user || req.user.role !== "user") {
+    return res.status(403).json({ error: "User access required" });
+  }
+  next();
+}
 
 /* ---------------- Helpers ---------------- */
 function getDeliveryFee(city) {
@@ -45,22 +65,28 @@ function getDeliveryFee(city) {
   return 30;
 }
 
-/* ---------------- Admin Login ---------------- */
-app.post("/admin/login", (req, res) => {
+/* =========================================================
+   ADMIN LOGIN (FIXED + SECURE)
+========================================================= */
+
+app.post("/admin/login", async (req, res) => {
   const { email, password } = req.body;
 
-  if (
-    email !== process.env.ADMIN_EMAIL ||
-    !bcrypt.compareSync(
-      password,
-      bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10)
-    )
-  ) {
+  if (email !== process.env.ADMIN_EMAIL) {
+    return res.status(401).json({ error: "Invalid credentials" });
+  }
+
+  const isMatch = await bcrypt.compare(
+    password,
+    process.env.ADMIN_PASSWORD_HASH
+  );
+
+  if (!isMatch) {
     return res.status(401).json({ error: "Invalid credentials" });
   }
 
   const token = jwt.sign(
-    { admin: true },
+    { role: "admin", email },
     process.env.JWT_SECRET,
     { expiresIn: "8h" }
   );
@@ -68,17 +94,21 @@ app.post("/admin/login", (req, res) => {
   res.json({ token });
 });
 
-/* ---------------- Products ---------------- */
+/* =========================================================
+   PRODUCTS
+========================================================= */
+
 app.get("/api/products", async (_, res) => {
   res.json(await Product.find());
 });
 
-app.post("/api/products", auth, async (req, res) => {
+app.post("/api/products", auth, requireAdmin, async (req, res) => {
   res.json(await Product.create(req.body));
 });
 
-app.put("/api/products/:id", auth, async (req, res) => {
+app.put("/api/products/:id", auth, requireAdmin, async (req, res) => {
   const { price, stock } = req.body;
+
   res.json(
     await Product.findByIdAndUpdate(
       req.params.id,
@@ -88,22 +118,27 @@ app.put("/api/products/:id", auth, async (req, res) => {
   );
 });
 
-app.delete("/api/products/:id", auth, async (req, res) => {
+app.delete("/api/products/:id", auth, requireAdmin, async (req, res) => {
   await Product.findByIdAndDelete(req.params.id);
   res.json({ success: true });
 });
 
-/* ---------------- Checkout ---------------- */
-app.post("/checkout", async (req, res) => {
+/* =========================================================
+   CHECKOUT (Now requires logged in USER)
+========================================================= */
+
+app.post("/checkout", auth, requireUser, async (req, res) => {
   try {
-    const { email, city, items } = req.body;
+    const { city, items } = req.body;
 
     let subtotal = 0;
     const orderProducts = [];
 
     for (const item of items) {
       const product = await Product.findById(item.productId);
-      if (!product) return res.status(400).json({ error: "Product not found" });
+      if (!product)
+        return res.status(400).json({ error: "Product not found" });
+
       if (product.stock < item.qty)
         return res.status(400).json({ error: "Out of stock" });
 
@@ -117,6 +152,7 @@ app.post("/checkout", async (req, res) => {
       });
     }
 
+    // reduce stock
     for (const item of items) {
       await Product.findByIdAndUpdate(item.productId, {
         $inc: { stock: -item.qty }
@@ -124,7 +160,8 @@ app.post("/checkout", async (req, res) => {
     }
 
     const order = await Order.create({
-      email,
+      userId: req.user.id,
+      email: req.user.email,
       city,
       products: orderProducts,
       finalTotal: subtotal + getDeliveryFee(city),
@@ -132,18 +169,32 @@ app.post("/checkout", async (req, res) => {
     });
 
     res.json(order);
+
   } catch (err) {
     console.error("❌ Checkout error:", err);
     res.status(500).json({ error: "Checkout failed" });
   }
 });
 
-/* ---------------- Orders ---------------- */
-app.get("/api/orders", auth, async (_, res) => {
+/* =========================================================
+   ORDERS
+========================================================= */
+
+/* ----- ADMIN: See ALL orders ----- */
+app.get("/api/orders", auth, requireAdmin, async (_, res) => {
   res.json(await Order.find().sort({ createdAt: -1 }));
 });
 
-app.put("/api/orders/:id/status", auth, async (req, res) => {
+/* ----- USER: See only THEIR orders ----- */
+app.get("/api/my-orders", auth, requireUser, async (req, res) => {
+  const orders = await Order.find({ userId: req.user.id })
+    .sort({ createdAt: -1 });
+
+  res.json(orders);
+});
+
+/* ----- ADMIN: Update order ----- */
+app.put("/api/orders/:id/status", auth, requireAdmin, async (req, res) => {
   try {
     const { status, products } = req.body;
     const order = await Order.findById(req.params.id);
@@ -177,18 +228,23 @@ app.put("/api/orders/:id/status", auth, async (req, res) => {
 
     await order.save();
     res.json(order);
+
   } catch (err) {
     console.error("❌ Order update error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete("/api/orders/:id", auth, async (req, res) => {
+/* ----- ADMIN: Delete order ----- */
+app.delete("/api/orders/:id", auth, requireAdmin, async (req, res) => {
   await Order.findByIdAndDelete(req.params.id);
   res.json({ success: true });
 });
 
-/* ---------------- Server ---------------- */
+/* =========================================================
+   SERVER
+========================================================= */
+
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () =>
   console.log(`🚀 Server running on port ${PORT}`)
