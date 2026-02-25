@@ -1,13 +1,21 @@
-const jwt = require("jsonwebtoken");
+const mongoose = require("mongoose");
 
-module.exports = function (req, res, next) {
-  const token = req.headers.authorization;
-  if (!token) return res.status(401).json({ error: "Access denied" });
+const orderSchema = new mongoose.Schema(
+  {
+    email: { type: String, required: true },
+    city: { type: String, required: true },
+    products: [
+      {
+        productId: mongoose.Schema.Types.ObjectId,
+        name: String,
+        price: Number,      // ✅ SNAPSHOT PRICE
+        quantity: Number
+      }
+    ],
+    finalTotal: Number,
+    status: { type: String, default: "pending" }
+  },
+  { timestamps: true }
+);
 
-  try {
-    jwt.verify(token.split(" ")[1], process.env.JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ error: "Invalid token" });
-  }
-};
+module.exports = mongoose.model("Order", orderSchema);
