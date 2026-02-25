@@ -13,13 +13,33 @@ module.exports = async function (req, res, next) {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
+    /* =========================
+       ADMIN TOKEN SUPPORT
+    ========================= */
+
+    if (decoded.role === "admin") {
+      req.user = {
+        role: "admin",
+        email: decoded.email
+      };
+      return next();
+    }
+
+    /* =========================
+       NORMAL USER SUPPORT
+    ========================= */
+
+    if (!decoded.id) {
+      return res.status(401).json({ message: "Invalid token structure" });
+    }
+
     const user = await User.findById(decoded.id).select("-password");
 
     if (!user) {
       return res.status(401).json({ message: "User not found" });
     }
 
-    req.user = user; // ✅ attaches role + id
+    req.user = user; // attaches id + role
     next();
 
   } catch (err) {
